@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SNAKE</title>
+<style>
+  /* Import retro pixel font from Google Fonts */
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  /* ── CSS VARIABLES ──────────────────────────────────────────
+     Central color palette and reusable values for the neon
+     arcade theme. Changing these updates the whole UI at once. */
+  :root {
+    --bg: #0a0a0f;                      /* page background (near black) */
+    --panel: #0f0f1a;                   /* HUD / legend panel background */
+    --border: #1a1a2e;                  /* generic border color */
+    --green: #39ff14;                   /* neon green – primary accent */
+    --green-dim: #1a7a09;               /* dimmed green for labels/outlines */
+    --green-glow: rgba(57,255,20,0.35); /* glow halo for neon green elements */
+    --red: #ff2244;                     /* food color */
+    --yellow: #ffd700;                  /* bonus item / high-score color */
+    --cyan: #00eeff;                    /* instructional text color */
+    --text: #c8f7c5;                    /* general readable text */
+    --scanline: rgba(0,0,0,0.15);       /* CRT scanline stripe color */
+  }
+
+  /* ── RESET ── */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  /* ── PAGE LAYOUT ── */
+  body {
+    background: var(--bg);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Press Start 2P', monospace;
+    overflow: hidden;
+  }
+
+  /* CRT scanline overlay – thin horizontal stripes across the entire page */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      var(--scanline) 0px,
+      var(--scanline) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events: none; /* clicks pass through */
+    z-index: 100;
+  }
+
+  /* CRT vignette overlay – darkens the screen edges for depth */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.7) 100%);
+    pointer-events: none;
+    z-index: 99;
+  }
+
+  /* Outer wrapper – stacks the marquee, screen, and legend vertically */
+  .arcade-cabinet {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── TOP MARQUEE (title banner) ── */
+  .marquee {
+    background: linear-gradient(135deg, #1a1a2e, #0f0f1a);
+    border: 3px solid var(--green);
+    border-bottom: none; /* merges visually with the screen below */
+    padding: 14px 40px 10px;
+    text-align: center;
+    box-shadow: 0 0 20px var(--green-glow), inset 0 0 30px rgba(57,255,20,0.05);
+    width: 520px;
+  }
+
+  /* "SNAKE" title with neon glow */
+  .marquee h1 {
+    font-size: 28px;
+    color: var(--green);
+    text-shadow: 0 0 10px var(--green), 0 0 30px var(--green-glow), 0 0 60px rgba(57,255,20,0.2);
+    letter-spacing: 12px;
+    animation: flicker 4s infinite; /* simulates a slightly unstable neon tube */
+  }
+
+  /* Neon flicker animation – brief opacity dips at 97% and 99% */
+  @keyframes flicker {
+    0%,96%,100% { opacity: 1; }
+    97% { opacity: 0.7; }
+    98% { opacity: 1; }
+    99% { opacity: 0.5; }
+  }
+
+  /* ── SCREEN WRAPPER ── */
+  .screen-wrap {
+    border: 4px solid var(--green);
+    box-shadow:
+      0 0 0 2px #000,              /* thin black gap between border and outer glow */
+      0 0 30px var(--green-glow),  /* close glow */
+      0 0 60px rgba(57,255,20,0.1),/* wide ambient glow */
+      inset 0 0 40px rgba(0,0,0,0.8); /* inner darkness for depth */
+    position: relative; /* anchor for absolutely-positioned overlays */
+    background: #000;
+    width: 520px;
+  }
+
+  /* ── HUD BAR (score / speed / lives / best) ── */
+  .hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 2px solid var(--green-dim);
+  }
+
+  /* Individual HUD column (label + value stacked) */
+  .hud-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Tiny uppercase label above each HUD value */
+  .hud-label {
+    font-size: 6px;
+    color: var(--green-dim);
+    letter-spacing: 2px;
+  }
+
+  /* Large neon numeric/text value in the HUD */
+  .hud-value {
+    font-size: 14px;
+    color: var(--green);
+    text-shadow: 0 0 8px var(--green-glow);
+  }
+
+  /* Lives heart container */
+  .lives {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  /* Individual heart icon – red glow when active */
+  .heart {
+    font-size: 10px;
+    filter: drop-shadow(0 0 4px #ff2244);
+    transition: opacity 0.3s;
+  }
+  /* Dim a heart when the player loses a life */
+  .heart.lost { opacity: 0.2; }
+
+  /* ── GAME CANVAS ── */
+  canvas {
+    display: block;
+    image-rendering: pixelated; /* keeps pixels sharp when scaled */
+    background: #000;
+  }
+
+  /* ── OVERLAY SCREENS (start / game-over / pause) ── */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: rgba(0,0,0,0.88); /* semi-transparent dark curtain */
+    z-index: 10;
+  }
+
+  /* Hide an overlay without removing it from the DOM */
+  .overlay.hidden { display: none; }
+
+  /* Large blinking title on overlays (e.g. "READY?" / "GAME OVER") */
+  .overlay-title {
+    font-size: 22px;
+    color: var(--green);
+    text-shadow: 0 0 10px var(--green), 0 0 30px var(--green-glow);
+    animation: blink 1.2s step-end infinite;
+    letter-spacing: 4px;
+  }
+
+  /* Small instructional text below the overlay title */
+  .overlay-sub {
+    font-size: 7px;
+    color: var(--cyan);
+    letter-spacing: 3px;
+    text-shadow: 0 0 8px rgba(0,238,255,0.5);
+    line-height: 2;
+    text-align: center;
+  }
+
+  /* Score / best text shown on the game-over overlay */
+  .overlay-score {
+    font-size: 12px;
+    color: var(--yellow);
+    text-shadow: 0 0 10px rgba(255,215,0,0.5);
+    letter-spacing: 2px;
+  }
+
+  /* Neon-bordered action button ("INSERT COIN", "TRY AGAIN") */
+  .btn {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 9px;
+    padding: 10px 22px;
+    background: transparent;
+    border: 2px solid var(--green);
+    color: var(--green);
+    cursor: pointer;
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px var(--green-glow);
+    box-shadow: 0 0 10px var(--green-glow);
+    transition: all 0.15s;
+    margin-top: 6px;
+  }
+
+  /* Button hover – fills with neon green (inverted) */
+  .btn:hover {
+    background: var(--green);
+    color: #000;
+    box-shadow: 0 0 20px var(--green), 0 0 40px var(--green-glow);
+  }
+
+  /* Simple on/off blink used by overlay titles */
+  @keyframes blink {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  /* ── SPEED BAR (row of 8 small pips in the HUD) ── */
+  .speed-bar {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+  }
+
+  /* A single speed pip (inactive = dim green) */
+  .speed-pip {
+    width: 6px;
+    height: 10px;
+    background: var(--green-dim);
+    transition: background 0.2s;
+  }
+
+  /* Active pip glows in neon green */
+  .speed-pip.active {
+    background: var(--green);
+    box-shadow: 0 0 4px var(--green);
+  }
+
+  /* ── BOTTOM LEGEND (controls reminder) ── */
+  .legend {
+    background: var(--panel);
+    border: 4px solid var(--green);
+    border-top: 2px solid var(--green-dim); /* thinner top merges with screen */
+    width: 520px;
+    padding: 10px 20px;
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    box-shadow: 0 0 30px var(--green-glow);
+  }
+
+  /* One key → action pair in the legend */
+  .legend-item {
+    font-size: 6px;
+    color: var(--green-dim);
+    letter-spacing: 1px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  /* The key label inside a legend item (cyan color for contrast) */
+  .legend-item span {
+    color: var(--cyan);
+    font-size: 7px;
+  }
+
+  /* High-score flash animation – alternates between yellow and green */
+  @keyframes scoreFlash {
+    0%,100% { color: var(--yellow); }
+    50% { color: var(--green); }
+  }
+  /* Applied to the best-score display when the player beats the record */
+  .new-hi { animation: scoreFlash 0.4s step-end 6; }
+</style>
+</head>
+<body>
+
+<!-- ── ARCADE CABINET WRAPPER ── -->
+<div class="arcade-cabinet">
+
+  <!-- Top title banner -->
+  <div class="marquee">
+    <h1>SNAKE</h1>
+  </div>
+
+  <!-- Main screen area (canvas + HUD + overlays) -->
+  <div class="screen-wrap">
+
+    <!-- HUD bar: score | speed | lives | best -->
+    <div class="hud">
+      <div class="hud-item">
+        <div class="hud-label">SCORE</div>
+        <div class="hud-value" id="score">0</div>
+      </div>
+      <div class="hud-item" style="align-items:center">
+        <div class="hud-label">SPD</div>
+        <div class="speed-bar" id="speedBar"></div>
+      </div>
+      <div class="hud-item" style="align-items:center">
+        <div class="hud-label">LIVES</div>
+        <div class="lives" id="lives"></div>
+      </div>
+      <div class="hud-item" style="align-items:flex-end">
+        <div class="hud-label">BEST</div>
+        <div class="hud-value" id="hiScore">0</div>
+      </div>
+    </div>
+
+    <!-- Game canvas – the actual playfield is drawn here -->
+    <canvas id="gameCanvas" width="500" height="400"></canvas>
+
+    <!-- Start overlay – shown before the first game begins -->
+    <div class="overlay" id="startOverlay">
+      <div class="overlay-title">READY?</div>
+      <div class="overlay-sub">
+        ARROW KEYS or WASD to move<br>
+        EAT FOOD · AVOID WALLS & SELF<br>
+        SPEED INCREASES WITH SCORE
+      </div>
+      <button class="btn" onclick="startGame()">INSERT COIN</button>
+    </div>
+
+    <!-- Game-over overlay – shown when all lives are lost -->
+    <div class="overlay hidden" id="gameOverOverlay">
+      <div class="overlay-title">GAME OVER</div>
+      <div class="overlay-score" id="finalScore"></div>
+      <div class="overlay-score" id="hiScoreMsg" style="font-size:8px; color:var(--yellow)"></div>
+      <button class="btn" onclick="startGame()">TRY AGAIN</button>
+    </div>
+
+    <!-- Pause overlay – toggled with the P key -->
+    <div class="overlay hidden" id="pauseOverlay">
+      <div class="overlay-title">PAUSED</div>
+      <div class="overlay-sub">PRESS P TO RESUME</div>
+    </div>
+
+  </div><!-- /.screen-wrap -->
+
+  <!-- Controls legend at the bottom -->
+  <div class="legend">
+    <div class="legend-item"><span>↑↓←→</span> MOVE</div>
+    <div class="legend-item"><span>P</span> PAUSE</div>
+    <div class="legend-item"><span>●</span> FOOD +10</div>
+    <div class="legend-item"><span>★</span> BONUS +50</div>
+  </div>
+
+</div><!-- /.arcade-cabinet -->
+
+<script>
+// ── CANVAS SETUP ─────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+
+// Grid dimensions: 25 columns × 20 rows of 20×20-pixel cells
+const COLS = 25, ROWS = 20;
+const CELL = canvas.width / COLS; // 20px per cell
+
+// ── COLOR PALETTE ─────────────────────────────────────────────
+// Centralised so rendering code never contains raw hex strings
+const C = {
+  bg:          '#000',
+  grid:        '#0a0a0a',             // very dark grid lines
+  snakeHead:   '#39ff14',             // bright neon green
+  snakeBody:   '#1db810',             // slightly dimmer green for body
+  snakeOutline:'#0a5c06',             // dark outline on body segments
+  food:        '#ff2244',             // red food dot
+  foodGlow:    'rgba(255,34,68,0.6)', // food glow halo
+  bonus:       '#ffd700',             // gold bonus star
+  bonusGlow:   'rgba(255,215,0,0.6)',// bonus glow halo
+};
+
+// ── GAME STATE VARIABLES ──────────────────────────────────────
+let snake;        // array of {x, y} segment positions, head at index 0
+let dir;          // current movement direction {x, y}
+let nextDir;      // queued direction (applied at start of next tick)
+let food;         // {x, y} position of the regular food item
+let bonus;        // {x, y} position of the bonus star, or null
+let score;        // current score
+let hiScore;      // all-time best score (persisted in localStorage)
+let lives;        // remaining lives (start with 3)
+let gameLoop;     // setInterval handle for the game tick
+let paused;       // true while the game is paused
+let gameRunning;  // false on the start/game-over screens
+let bonusTimer = 0;  // ticks remaining before the bonus item expires
+let particles  = []; // active particle objects for visual effects
+
+// ── HUD HELPERS ───────────────────────────────────────────────
+
+/**
+ * Re-renders the lives hearts and speed-bar pips based on
+ * the current `lives` and `score` values.
+ */
+function initHUD() {
+  // --- Lives hearts ---
+  const livesEl = document.getElementById('lives');
+  livesEl.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const h = document.createElement('div');
+    // Hearts beyond the remaining count get the 'lost' (dim) class
+    h.className = 'heart' + (i >= lives ? ' lost' : '');
+    h.textContent = '♥';
+    livesEl.appendChild(h);
+  }
+
+  // --- Speed pips ---
+  const bar = document.getElementById('speedBar');
+  bar.innerHTML = '';
+  const level = getSpeedLevel();
+  for (let i = 0; i < 8; i++) {
+    const pip = document.createElement('div');
+    pip.className = 'speed-pip' + (i < level ? ' active' : '');
+    bar.appendChild(pip);
+  }
+}
+
+/**
+ * Returns the current speed level (1–8) based on score.
+ * Increases by 1 for every 50 points earned.
+ */
+function getSpeedLevel() {
+  return Math.min(8, Math.floor(score / 50) + 1);
+}
+
+/**
+ * Returns the setInterval delay in milliseconds.
+ * Starts at 160ms and shrinks by 14ms per speed level, down to 60ms.
+ */
+function getInterval() {
+  return Math.max(60, 160 - (getSpeedLevel() - 1) * 14);
+}
+
+// ── GAME LIFECYCLE ────────────────────────────────────────────
+
+/**
+ * Initialises (or re-initialises) all game state and starts
+ * the game loop. Called by "INSERT COIN" and "TRY AGAIN".
+ */
+function startGame() {
+  // Hide all overlays
+  document.getElementById('startOverlay').classList.add('hidden');
+  document.getElementById('gameOverOverlay').classList.add('hidden');
+  document.getElementById('pauseOverlay').classList.add('hidden');
+
+  // Reset snake to a 3-segment horizontal strip in the centre
+  snake   = [{x:12,y:10},{x:11,y:10},{x:10,y:10}];
+  dir     = {x:1, y:0};
+  nextDir = {x:1, y:0};
+
+  // Reset counters and flags
+  score       = 0;
+  lives       = 3;
+  paused      = false;
+  gameRunning = true;
+  particles   = [];
+  bonus       = null;
+  bonusTimer  = 0;
+
+  // Load persisted high score
+  hiScore = parseInt(localStorage.getItem('snakeHi') || '0');
+  document.getElementById('hiScore').textContent = hiScore;
+  document.getElementById('score').textContent   = '0';
+
+  placeFood();
+  initHUD();
+
+  // Start the fixed-interval game tick
+  clearInterval(gameLoop);
+  gameLoop = setInterval(tick, getInterval());
+
+  // Kick off the render loop (only needs one call; it self-schedules)
+  requestAnimationFrame(render);
+}
+
+// ── FOOD & BONUS PLACEMENT ────────────────────────────────────
+
+/**
+ * Places the food at a random cell that is not occupied by the snake.
+ */
+function placeFood() {
+  do {
+    food = {x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS)};
+  } while (snake.some(s => s.x === food.x && s.y === food.y));
+}
+
+/**
+ * Spawns a bonus star at a random free cell.
+ * Only one bonus item can exist at a time; it expires after 80 ticks.
+ */
+function spawnBonus() {
+  if (bonus) return; // already active
+  let pos;
+  do {
+    pos = {x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS)};
+  } while (
+    snake.some(s => s.x === pos.x && s.y === pos.y) ||
+    (food.x === pos.x && food.y === pos.y)
+  );
+  bonus      = pos;
+  bonusTimer = 80; // ticks before it disappears
+}
+
+// ── PARTICLE EFFECTS ──────────────────────────────────────────
+
+/**
+ * Spawns `count` particles erupting outward from grid cell (x, y).
+ * Each particle has random velocity, lifetime, and radius.
+ * @param {number} x     - grid column
+ * @param {number} y     - grid row
+ * @param {string} color - CSS colour string
+ * @param {number} count - number of particles to emit
+ */
+function addParticles(x, y, color, count = 8) {
+  for (let i = 0; i < count; i++) {
+    // Spread particles evenly around a circle with a little jitter
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+    particles.push({
+      x:     x * CELL + CELL / 2, // world-space X (pixels)
+      y:     y * CELL + CELL / 2, // world-space Y (pixels)
+      vx:    Math.cos(angle) * (1.5 + Math.random() * 2),
+      vy:    Math.sin(angle) * (1.5 + Math.random() * 2),
+      life:  1,                                   // 1 = full opacity, 0 = dead
+      decay: 0.04 + Math.random() * 0.03,        // how fast it fades
+      color,
+      r:     2 + Math.random() * 2,              // radius in pixels
+    });
+  }
+}
+
+// ── GAME TICK ─────────────────────────────────────────────────
+
+/**
+ * Advances the game by one step. Called repeatedly by setInterval.
+ * Handles movement, collision detection, eating, and bonus expiry.
+ */
+function tick() {
+  if (paused || !gameRunning) return;
+
+  // Apply the queued direction (prevents instant 180° reversals)
+  dir = {...nextDir};
+
+  // Calculate the new head position
+  const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+  // --- Collision: wall ---
+  if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
+    die(); return;
+  }
+
+  // --- Collision: self ---
+  if (snake.some(s => s.x === head.x && s.y === head.y)) {
+    die(); return;
+  }
+
+  // Move: prepend new head (the snake "slides" forward)
+  snake.unshift(head);
+
+  // --- Eating: regular food ---
+  if (head.x === food.x && head.y === food.y) {
+    score += 10;
+    addParticles(food.x, food.y, '#ff2244');
+    placeFood();
+    // Spawn a bonus item every 50 points
+    if (score > 0 && score % 50 === 0) spawnBonus();
+    updateScore();
+    restartLoop(); // recalculate speed after score change
+    // Snake grows: we do NOT pop the tail
+
+  // --- Eating: bonus star ---
+  } else if (bonus && head.x === bonus.x && head.y === bonus.y) {
+    score += 50;
+    addParticles(bonus.x, bonus.y, '#ffd700', 14);
+    bonus      = null;
+    bonusTimer = 0;
+    snake.pop(); // bonus does not grow the snake
+    updateScore();
+    restartLoop();
+
+  // --- No food eaten: remove tail to keep length constant ---
+  } else {
+    snake.pop();
+  }
+
+  // Countdown the bonus item's lifespan
+  if (bonus) {
+    bonusTimer--;
+    if (bonusTimer <= 0) bonus = null;
+  }
+}
+
+// ── DEATH HANDLING ────────────────────────────────────────────
+
+/**
+ * Called when the snake hits a wall or itself.
+ * Decrements lives, triggers particles, and either respawns
+ * the snake or shows the game-over screen.
+ */
+function die() {
+  lives--;
+  addParticles(snake[0].x, snake[0].y, '#39ff14', 16); // green burst on death
+  initHUD(); // update hearts display immediately
+
+  if (lives <= 0) {
+    // No lives left → end the game
+    gameRunning = false;
+    clearInterval(gameLoop);
+
+    // Persist new high score if beaten
+    if (score > hiScore) {
+      hiScore = score;
+      localStorage.setItem('snakeHi', hiScore);
+      document.getElementById('hiScore').textContent = hiScore;
+      // Flash the best-score display
+      const el = document.getElementById('hiScore');
+      el.classList.add('new-hi');
+      setTimeout(() => el.classList.remove('new-hi'), 2400);
+    }
+
+    // Brief delay so the death particles are visible before the overlay appears
+    setTimeout(() => {
+      document.getElementById('finalScore').textContent  = 'SCORE: ' + score;
+      document.getElementById('hiScoreMsg').textContent  =
+        score >= hiScore ? '★ NEW BEST! ★' : 'BEST: ' + hiScore;
+      document.getElementById('gameOverOverlay').classList.remove('hidden');
+    }, 600);
+
+  } else {
+    // Still have lives → respawn snake at the starting position
+    snake   = [{x:12,y:10},{x:11,y:10},{x:10,y:10}];
+    dir     = {x:1, y:0};
+    nextDir = {x:1, y:0};
+  }
+}
+
+// ── SCORE / SPEED UPDATES ─────────────────────────────────────
+
+/** Syncs the on-screen score and refreshes the HUD (speed pips, etc.). */
+function updateScore() {
+  document.getElementById('score').textContent = score;
+  initHUD();
+}
+
+/**
+ * Restarts the game tick interval with the current speed.
+ * Called after eating so the tempo reflects the new score immediately.
+ */
+function restartLoop() {
+  clearInterval(gameLoop);
+  gameLoop = setInterval(tick, getInterval());
+}
+
+// ── RENDER LOOP ───────────────────────────────────────────────
+
+/**
+ * Draws the entire game frame. Schedules itself with
+ * requestAnimationFrame so it runs at ~60fps independent of the
+ * game-logic tick rate.
+ */
+function render() {
+  requestAnimationFrame(render); // schedule next frame first
+
+  // Clear canvas
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // --- Grid lines (subtle dark lines between cells) ---
+  ctx.strokeStyle = C.grid;
+  ctx.lineWidth   = 0.5;
+  for (let x = 0; x <= COLS; x++) {
+    ctx.beginPath();
+    ctx.moveTo(x * CELL, 0);
+    ctx.lineTo(x * CELL, canvas.height);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= ROWS; y++) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * CELL);
+    ctx.lineTo(canvas.width, y * CELL);
+    ctx.stroke();
+  }
+
+  // --- Food dot (pulsing red glow) ---
+  // pulse value oscillates between 0.6 and 1.0 using a sine wave
+  const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 250);
+  ctx.save();
+  ctx.shadowColor = C.foodGlow;
+  ctx.shadowBlur  = 12 * pulse;
+  ctx.fillStyle   = C.food;
+  ctx.beginPath();
+  ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, CELL / 2 - 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  // Small bright centre dot for clarity
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Bonus star (blinks fast when about to expire) ---
+  if (bonus) {
+    // When fewer than 20 ticks remain, blink at ~5Hz
+    const blink = bonusTimer < 20 ? (Math.floor(Date.now() / 100) % 2 === 0) : true;
+    if (blink) {
+      const bp = 0.5 + 0.5 * Math.sin(Date.now() / 180); // glow pulse
+      ctx.save();
+      ctx.shadowColor   = C.bonusGlow;
+      ctx.shadowBlur    = 16 * bp;
+      ctx.fillStyle     = C.bonus;
+      ctx.font          = `bold ${CELL - 2}px serif`;
+      ctx.textAlign     = 'center';
+      ctx.textBaseline  = 'middle';
+      ctx.fillText('★', bonus.x * CELL + CELL / 2, bonus.y * CELL + CELL / 2 + 1);
+      ctx.restore();
+    }
+  }
+
+  // --- Snake segments ---
+  snake.forEach((seg, i) => {
+    const isHead = i === 0;
+    // Colour fades from bright green (head) to darker green (tail)
+    const t     = i / snake.length;
+    const green = isHead
+      ? C.snakeHead
+      : `hsl(${115 - t * 30}, ${85 - t * 20}%, ${40 - t * 15}%)`;
+
+    // Glow only on the head
+    if (isHead) {
+      ctx.save();
+      ctx.shadowColor = C.snakeHead;
+      ctx.shadowBlur  = 12;
+    }
+
+    ctx.fillStyle = green;
+    ctx.fillRect(seg.x * CELL + 1, seg.y * CELL + 1, CELL - 2, CELL - 2);
+
+    if (isHead) {
+      ctx.restore();
+
+      // Draw eyes oriented in the direction of movement
+      // ex/ey = forward direction, ex2/ey2 = perpendicular (sideways)
+      const ex = dir.x, ey = dir.y;
+      const ex2 = ey, ey2 = -ex;
+      const cx = seg.x * CELL + CELL / 2;
+      const cy = seg.y * CELL + CELL / 2;
+
+      [{x: ex*4 + ex2*3, y: ey*4 + ey2*3},   // left eye
+       {x: ex*4 - ex2*3, y: ey*4 - ey2*3}    // right eye
+      ].forEach(o => {
+        ctx.fillStyle = '#000'; // pupil
+        ctx.beginPath();
+        ctx.arc(cx + o.x, cy + o.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff'; // highlight
+        ctx.beginPath();
+        ctx.arc(cx + o.x + 0.5, cy + o.y - 0.5, 1, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+    } else {
+      // Body segment: draw a subtle inner outline for texture
+      ctx.strokeStyle = C.snakeOutline;
+      ctx.lineWidth   = 1;
+      ctx.strokeRect(seg.x * CELL + 1.5, seg.y * CELL + 1.5, CELL - 3, CELL - 3);
+    }
+  });
+
+  // --- Particles ---
+  // Remove dead particles, then update and draw the survivors
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    p.x    += p.vx;
+    p.y    += p.vy;
+    p.vx   *= 0.92; // friction
+    p.vy   *= 0.92;
+    p.life -= p.decay;
+
+    ctx.save();
+    ctx.globalAlpha = p.life; // fade out as life decreases
+    ctx.fillStyle   = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur  = 6;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ── KEYBOARD INPUT ────────────────────────────────────────────
+
+/**
+ * Maps arrow keys and WASD to direction changes.
+ * Prevents reversing directly into the snake's own body by checking
+ * the opposite axis before applying the new direction.
+ * 'P' toggles pause.
+ */
+document.addEventListener('keydown', e => {
+  switch (e.key) {
+    case 'ArrowUp':    case 'w': case 'W':
+      if (dir.y !== 1)  nextDir = {x: 0, y: -1}; break;
+    case 'ArrowDown':  case 's': case 'S':
+      if (dir.y !== -1) nextDir = {x: 0, y:  1}; break;
+    case 'ArrowLeft':  case 'a': case 'A':
+      if (dir.x !== 1)  nextDir = {x: -1, y: 0}; break;
+    case 'ArrowRight': case 'd': case 'D':
+      if (dir.x !== -1) nextDir = {x:  1, y: 0}; break;
+    case 'p': case 'P':
+      if (!gameRunning) return;
+      paused = !paused;
+      document.getElementById('pauseOverlay').classList.toggle('hidden', !paused);
+      break;
+  }
+  // Prevent the page from scrolling with the arrow keys
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+    e.preventDefault();
+  }
+});
+
+// ── TOUCH / SWIPE INPUT ───────────────────────────────────────
+
+/**
+ * Detects swipe gestures on the canvas for mobile play.
+ * A swipe of more than 20px in the dominant axis changes direction.
+ */
+let touchStart = null;
+
+canvas.addEventListener('touchstart', e => {
+  touchStart = e.touches[0]; // record finger-down position
+}, {passive: true});
+
+canvas.addEventListener('touchend', e => {
+  if (!touchStart) return;
+  const dx = e.changedTouches[0].clientX - touchStart.clientX;
+  const dy = e.changedTouches[0].clientY - touchStart.clientY;
+
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal swipe
+    if (dx > 20  && dir.x !== -1) nextDir = {x:  1, y: 0};
+    else if (dx < -20 && dir.x !== 1) nextDir = {x: -1, y: 0};
+  } else {
+    // Vertical swipe
+    if (dy > 20  && dir.y !== -1) nextDir = {x: 0, y:  1};
+    else if (dy < -20 && dir.y !== 1) nextDir = {x: 0, y: -1};
+  }
+  touchStart = null;
+}, {passive: true});
+
+// ── BOOT ─────────────────────────────────────────────────────
+// Kick off the render loop immediately so the background and
+// grid are visible behind the start overlay right away.
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
