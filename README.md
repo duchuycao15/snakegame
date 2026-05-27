@@ -13,3 +13,7 @@ I also like playing it again and again because it’s fun, simple, and nostalgic
 I built this game with HTML and CSS, aiming for a clean, retro‑inspired look. 🎨✨
 
 Even though it’s a simple project, it helped me practice front‑end skills and showed my creativity with a classic game concept. 🛠️🎯
+
+Update:
+ 1. add more mechincis for the game.
+ 2. Add more visual for the game.
