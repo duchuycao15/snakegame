@@ -1,3 +1,5 @@
+Link: https://duchuycao15.github.io/snakegame/
+
 I made this Snake game because I’ve always loved retro technology and classic computer games. 🐍🕹️
 
 When I was young, I enjoyed the nostalgic look of old devices, simple graphics, and classic games that many people grew up playing. 📼🎮
