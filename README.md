@@ -16,6 +16,8 @@ I built this game with HTML and CSS, aiming for a clean, retro‑inspired look. 
 
 Even though it’s a simple project, it helped me practice front‑end skills and showed my creativity with a classic game concept. 🛠️🎯
 
+![Demo GIF](https://example.com/demo.gif)
+
 Update:
  1. add more mechincis for the game.
  2. Add more visual for the game.
